@@ -21,10 +21,10 @@ jobs:
       - name: 3. 安装转换依赖
         run: |
           python -m pip install --upgrade pip
-          # 安装核心工具：固定 torch 版本以匹配 coremltools 建议的范围
-          pip install torch==2.0.1 torchvision==0.15.2 coremltools==6.3.0
-          # 一次性补齐 YOLOP 所有的运行依赖
-          pip install PyYAML prefetch_generator tqdm numpy opencv-python pandas requests scipy
+          # 核心工具
+          pip install torch==2.0.0 torchvision==0.15.1 coremltools==6.3.0
+          # YOLOP 源码运行必需的第三方库 (已补全 matplotlib)
+          pip install PyYAML prefetch_generator tqdm numpy opencv-python pandas requests scipy matplotlib
 
       - name: 4. 执行模型转换 (内置逻辑版)
         run: |
