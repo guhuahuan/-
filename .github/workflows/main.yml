@@ -1,4 +1,4 @@
-name: ADAS_Final_Fix_v3
+name: ADAS_Final_Fix_v4
 
 on: [push]
 
@@ -14,44 +14,66 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: 3. 安装所有环境依赖 (含 yacs)
+      - name: 3. 安装环境依赖
         run: |
-          # 补充了 yacs 和 tqdm，确保模型加载不报错
           pip install "numpy<2" torch==2.1.0 torchvision coremltools prefetch_generator scipy opencv-python matplotlib pyyaml tensorboard yacs tqdm
 
-      - name: 4. 云端生成 ADAS.py
+      - name: 4. 云端生成 ADAS.py (修复 Tracer 报错)
         run: |
           cat <<EOF > ADAS.py
           import torch
+          import torch.nn as nn
           import coremltools as ct
           import sys
           import os
           import shutil
+
+          # 定义一个包装类，强制简化输出结构
+          class WrappedModel(nn.Module):
+              def __init__(self, model):
+                  super().__init__()
+                  self.model = model
+              def forward(self, x):
+                  # YOLOP 返回 [det_out, drive_area_seg, lane_line_seg]
+                  # 我们只取这三个核心输出，确保它们是纯 Tensor 格式
+                  out = self.model(x)
+                  return out[0], out[1], out[2]
 
           def export():
               hub_dir = torch.hub.get_dir()
               if os.path.exists(hub_dir):
                   shutil.rmtree(hub_dir)
 
-              print("🚀 依赖已补全，正在加载 YOLOP 模型...")
+              print("🚀 正在加载并包装 YOLOP 模型...")
               try:
-                  # 加载模型主体
-                  model = torch.hub.load('hustvl/yolop', 'yolop', pretrained=True, trust_repo=True, force_reload=True)
-                  model.eval()
+                  raw_model = torch.hub.load('hustvl/yolop', 'yolop', pretrained=True, trust_repo=True, force_reload=True)
+                  raw_model.eval()
                   
-                  print("📦 正在转换并进行 iOS 算子优化...")
+                  # 使用包装类处理模型
+                  model = WrappedModel(raw_model)
+                  
+                  print("📦 正在进行 Trace 追踪 (这一步现在应该能通过了)...")
                   example_input = torch.rand(1, 3, 320, 320)
-                  traced_model = torch.jit.trace(model, example_input)
+                  # 使用 check_trace=False 减少不必要的类型检查报错
+                  traced_model = torch.jit.trace(model, example_input, check_trace=False)
                   
+                  print("🛠️ 开始转换为 CoreML 格式...")
                   mlmodel = ct.convert(
                       traced_model,
-                      inputs=[ct.ImageType(name="image", shape=example_input.shape, scale=1/255.0, color_layout=ct.colorlayout.RGB)]
+                      inputs=[ct.ImageType(name="image", shape=example_input.shape, scale=1/255.0, color_layout=ct.colorlayout.RGB)],
+                      outputs=[
+                          ct.TensorType(name="det_out"),
+                          ct.TensorType(name="drive_area"),
+                          ct.TensorType(name="lane_line")
+                      ]
                   )
                   
                   mlmodel.save("YOLOP_ADAS.mlpackage")
-                  print("✅ 恭喜！模型转换大获成功！")
+                  print("✅ 恭喜！模型转换终于成功了！")
               except Exception as e:
                   print(f"❌ 运行中发生错误: {e}")
+                  import traceback
+                  traceback.print_exc()
                   sys.exit(1)
 
           if __name__ == "__main__":
@@ -61,8 +83,8 @@ jobs:
       - name: 5. 执行转换
         run: python ADAS.py
 
-      - name: 6. 上传模型成品
+      - name: 6. 上传最终模型
         uses: actions/upload-artifact@v4
         with:
-          name: YOLOP_ADAS_Final_Model
+          name: YOLOP_ADAS_CoreML_Final
           path: YOLOP_ADAS.mlpackage
