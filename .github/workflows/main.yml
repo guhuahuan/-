@@ -21,7 +21,10 @@ jobs:
       - name: 3. 安装转换依赖
         run: |
           python -m pip install --upgrade pip
+          # 安装核心转换工具
           pip install torch torchvision torchaudio coremltools==6.3.0
+          # 补齐 YOLOP 源码依赖的第三方库
+          pip install prefetch_generator tqdm numpy opencv-python pandas requests
 
       - name: 4. 执行模型转换 (内置逻辑版)
         run: |
