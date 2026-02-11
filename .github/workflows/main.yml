@@ -1,4 +1,4 @@
-name: ADAS_Final_Fix
+name: ADAS_Final_Fix_v2
 
 on: [push]
 
@@ -14,46 +14,55 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: 3. 补全所有缺失的视觉库
+      - name: 3. 安装所有环境依赖
         run: |
-          # 强制降级 numpy 并安装 matplotlib, scipy, yaml 等
           pip install "numpy<2" torch==2.1.0 torchvision coremltools prefetch_generator scipy opencv-python matplotlib pyyaml tensorboard
 
-      - name: 4. 云端生成 ADAS.py
+      - name: 4. 云端生成 ADAS.py (增加强制刷新逻辑)
         run: |
           cat <<EOF > ADAS.py
           import torch
           import coremltools as ct
           import sys
           import os
+          import shutil
 
           def export():
-              print("🚀 依赖已就绪，正在加载 YOLOP 模型...")
-              # 从官方 Hub 镜像加载
-              model = torch.hub.load('hustvl/yolop', 'yolop', pretrained=True, trust_repo=True)
-              model.eval()
-              
-              print("📦 正在转换并进行算子优化...")
-              example_input = torch.rand(1, 3, 320, 320)
-              traced_model = torch.jit.trace(model, example_input)
-              
-              mlmodel = ct.convert(
-                  traced_model,
-                  inputs=[ct.ImageType(name="image", shape=example_input.shape, scale=1/255.0)]
-              )
-              
-              # 保存为 iOS CoreML 格式
-              mlmodel.save("YOLOP_ADAS.mlpackage")
-              print("✅ 转换大功告成！")
+              # 强制清理之前的残余缓存，防止 BadZipFile 错误
+              hub_dir = torch.hub.get_dir()
+              if os.path.exists(hub_dir):
+                  print(f"🧹 清理旧缓存: {hub_dir}")
+                  shutil.rmtree(hub_dir)
+
+              print("🚀 正在重新下载并加载 YOLOP 模型 (强制刷新模式)...")
+              try:
+                  # force_reload=True 确保下载完整文件
+                  model = torch.hub.load('hustvl/yolop', 'yolop', pretrained=True, trust_repo=True, force_reload=True)
+                  model.eval()
+                  
+                  print("📦 正在转换 CoreML 模型...")
+                  example_input = torch.rand(1, 3, 320, 320)
+                  traced_model = torch.jit.trace(model, example_input)
+                  
+                  mlmodel = ct.convert(
+                      traced_model,
+                      inputs=[ct.ImageType(name="image", shape=example_input.shape, scale=1/255.0)]
+                  )
+                  
+                  mlmodel.save("YOLOP_ADAS.mlpackage")
+                  print("✅ 转换大获成功！")
+              except Exception as e:
+                  print(f"❌ 运行中发生错误: {e}")
+                  sys.exit(1)
 
           if __name__ == "__main__":
               export()
           EOF
 
-      - name: 5. 运行转换脚本
+      - name: 5. 执行转换
         run: python ADAS.py
 
-      - name: 6. 上传生成的模型 (iOS 专用)
+      - name: 6. 上传模型
         uses: actions/upload-artifact@v4
         with:
           name: YOLOP_ADAS_Final_Model
