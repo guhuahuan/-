@@ -14,6 +14,7 @@ jobs:
 
       - name: 3. 执行模型转换
         run: |
+          ls -R
           # 这一步现在能找到 ADAS.py 了
           python ADAS.py --export 
 
