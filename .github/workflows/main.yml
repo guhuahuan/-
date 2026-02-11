@@ -16,7 +16,7 @@ jobs:
         run: |
           ls -R
           # 这一步现在能找到 ADAS.py 了
-          python ADAS.py --export 
+          python ./ADAS.py --export
 
       - name: 4. 强行打包 iOS 可执行文件
         run: |
