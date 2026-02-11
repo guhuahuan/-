@@ -1,33 +1,42 @@
-name: ADAS_iOS_CI
+name: ADAS_Full_Build_System
 
-on: 
+on:
   push:
-    branches: [ main, master ] # 兼容不同仓库的主分支名称
+    branches: [ master ] # 匹配你的 master 分支
 
 jobs:
-  build_model:
-    runs-on: macos-latest # 必须使用 macOS 运行器才能处理 CoreML 转换
+  build:
+    runs-on: macos-latest
     steps:
-      - name: 步骤 1: 下载仓库代码
+      - name: 1. 检出代码
         uses: actions/checkout@v4
 
-      - name: 步骤 2: 安装 Python 3.9
+      - name: 2. 安装 Python 环境
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: 步骤 3: 安装必要插件
+      - name: 3. 安装转换依赖
         run: |
-          pip install torch torchvision numpy opencv-python coremltools
+          pip install torch torchvision coremltools opencv-python
 
-      - name: 步骤 4: 执行导出命令
+      - name: 4. 执行模型转换
         run: |
-          # 运行 ADAS.py 并传入 --export 参数
+          # 运行你的 ADAS.py 导出 YOLOP_ADAS.mlpackage
           python ADAS.py --export 
 
-      - name: 步骤 5: 上传模型文件
-        if: success()
-        uses: actions/upload-artifact@v3
+      - name: 5. 编译 iOS 项目
+        run: |
+          # 注意：这里的 -project 后面必须对应你上传的工程名
+          # 暂时使用通用的编译指令
+          xcodebuild build \
+            -project *.xcodeproj \
+            -scheme "-" \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 6. 打包并上传
+        uses: actions/upload-artifact@v4
         with:
-          name: iOS_Model_Download
-          path: YOLOP_ADAS.mlpackage # 将生成的模型打包供你下载
+          name: ADAS_iPhone_Install_File
+          path: build/Release-iphoneos/*.app
