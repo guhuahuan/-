@@ -1,8 +1,6 @@
-name: ADAS_Full_Build_System
+name: ADAS_Build_From_Scratch
 
-on:
-  push:
-    branches: [ master ] # 匹配你的 master 分支
+on: [push]
 
 jobs:
   build:
@@ -11,32 +9,21 @@ jobs:
       - name: 1. 检出代码
         uses: actions/checkout@v4
 
-      - name: 2. 安装 Python 环境
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
+      - name: 2. 安装 Python 工具
+        run: pip install torch torchvision coremltools
 
-      - name: 3. 安装转换依赖
+      - name: 3. 生成你的模型
         run: |
-          pip install torch torchvision coremltools opencv-python
+          # 确保你仓库里有那个 ADAS.py
+          python ADAS.py --export
 
-      - name: 4. 执行模型转换
+      - name: 4. 强行编译 iOS 程序
         run: |
-          # 运行你的 ADAS.py 导出 YOLOP_ADAS.mlpackage
-          python ADAS.py --export 
-
-      - name: 5. 编译 iOS 项目
-        run: |
-          # 注意：这里的 -project 后面必须对应你上传的工程名
-          # 暂时使用通用的编译指令
-          xcodebuild build \
-            -project *.xcodeproj \
-            -scheme "-" \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: 6. 打包并上传
+          # 我们不使用 xcodeproj，直接用 swiftc 编译器强行生成可执行文件
+          xcrun -sdk iphoneos swiftc main.swift -o ADAS_App_Binary
+          
+      - name: 5. 上传成品
         uses: actions/upload-artifact@v4
         with:
-          name: ADAS_iPhone_Install_File
-          path: build/Release-iphoneos/*.app
+          name: ADAS_Binary_File
+          path: ADAS_App_Binary
