@@ -1,4 +1,4 @@
-name: ADAS_Force_Build
+name: ADAS_Cloud_Generator
 
 on: [push]
 
@@ -6,27 +6,45 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-      - name: 1. 检出代码
+      - name: 1. 检出仓库
         uses: actions/checkout@v4
 
       - name: 2. 安装 Python 环境
         run: pip install torch torchvision coremltools
 
-      - name: 3. 执行模型转换
+      - name: 3. 在云端当场创建 ADAS.py
         run: |
-          ls -R
-          # 这一步现在能找到 ADAS.py 了
-          python ./ADAS.py --export
+          # 这段指令会直接在 Mac 服务器上写出一个 ADAS.py 文件
+          cat <<EOF > ADAS.py
+          import torch
+          import coremltools as ct
+          import sys
 
-      - name: 4. 强行打包 iOS 可执行文件
-        run: |
-          # 即使没有工程文件，我们也用编译器强行出一版二进制
-          xcrun -sdk iphoneos swiftc main.swift -o ADAS_App_Run
-          
-      - name: 5. 上传生成的模型和程序
+          def export():
+              print("🚀 正在云端下载 YOLOP 并转换模型...")
+              # 自动下载官方预训练权重
+              model = torch.hub.load('hustvl/yolop', 'yolop', pretrained=True, trust_repo=True)
+              model.eval()
+              
+              example_input = torch.rand(1, 3, 320, 320)
+              traced_model = torch.jit.trace(model, example_input)
+              
+              mlmodel = ct.convert(
+                  traced_model,
+                  inputs=[ct.ImageType(name="image", shape=example_input.shape, scale=1/255.0)]
+              )
+              mlmodel.save("YOLOP_ADAS.mlpackage")
+              print("✅ 模型转换成功！")
+
+          if __name__ == "__main__":
+              export()
+          EOF
+
+      - name: 4. 运行刚才生成的脚本
+        run: python ADAS.py
+
+      - name: 5. 上传模型成品
         uses: actions/upload-artifact@v4
         with:
-          name: ADAS_Output_Files
-          path: |
-            YOLOP_ADAS.mlpackage
-            ADAS_App_Run
+          name: YOLOP_iOS_Model
+          path: YOLOP_ADAS.mlpackage
