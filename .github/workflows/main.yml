@@ -1,0 +1,23 @@
+name: ADAS_iOS_CI
+
+on: [push]
+
+jobs:
+  convert_and_build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install Dependencies
+        run: |
+          pip install torch torchvision numpy opencv-python coremltools
+      - name: Run Export
+        run: python ADAS.py --export 
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: YOLOP_CoreML_Model
+          path: YOLOP_ADAS.mlpackage
