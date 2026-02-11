@@ -34,53 +34,64 @@ jobs:
           import coremltools as ct
           import sys
 
-          # 简化包装类：直接通过 export 标志位的原生输出进行映射
-          class WrappedModel(nn.Module):
+          # 强制解包类：将 YOLOP 的复杂输出转化为 3 个独立的 Tensor
+          class YOLOPCoreMLWrapper(nn.Module):
               def __init__(self, model):
                   super().__init__()
                   self.model = model
               def forward(self, x):
-                  # 在 export=True 模式下，YOLOP 通常返回三个 Tensor
-                  return self.model(x)
+                  # 执行原始模型
+                  # YOLOP outputs: [det_out, [drive_area_out, lane_line_out]]
+                  outputs = self.model(x)
+                  
+                  det_out = outputs[0]          # 目标检测输出 (1, n, 6)
+                  drive_out = outputs[1][0]      # 可行驶区域 (1, 2, h, w)
+                  lane_out = outputs[1][1]       # 车道线分割 (1, 2, h, w)
+                  
+                  return det_out, drive_out, lane_out
 
-          print('🚀 正在初始化 YOLOP 环境...')
+          print('🚀 正在初始化环境并降级 NumPy...')
           try:
-              # 加载模型
-              model = torch.hub.load('hustvl/yolop', 'yolop', pretrained=True, trust_repo=True)
-              model.eval()
+              # 显式加载 YOLOP
+              raw_model = torch.hub.load('hustvl/yolop', 'yolop', pretrained=True, trust_repo=True)
+              raw_model.eval()
               
-              # 重要：开启 YOLOP 的导出模式
-              for m in model.modules():
-                  if hasattr(m, 'export'):
-                      m.export = True 
+              # 开启导出模式（这会简化部分内部逻辑）
+              for m in raw_model.modules():
+                  if hasattr(m, 'export'): m.export = True 
 
-              # 测试运行一次以确认输出结构
+              # 使用我们的包装器包裹模型
+              wrapper = YOLOPCoreMLWrapper(raw_model).eval()
+              
+              # 定义输入尺寸 (1, 3, 320, 320)
               example_input = torch.rand(1, 3, 320, 320)
-              with torch.no_grad():
-                  test_out = model(example_input)
-                  print(f'📦 模型输出结构确认: 包含 {len(test_out)} 个输出节点')
+              
+              print('📦 正在执行 JIT Trace (通过包装器)...')
+              # 使用 strict=False 允许 Tracer 忽略非数据流相关的 Python 逻辑
+              traced_model = torch.jit.trace(wrapper, example_input, strict=False)
 
-              print('📦 正在生成 JIT Trace (strict=False)...')
-              traced_model = torch.jit.trace(model, example_input, strict=False)
-
-              print('🛠️ 正在转换为 CoreML...')
+              print('🛠️ 正在转换为 CoreML mlpackage...')
               mlmodel = ct.convert(
                   traced_model,
                   inputs=[ct.ImageType(name='image', shape=example_input.shape, scale=1/255.0, color_layout=ct.colorlayout.RGB)],
                   outputs=[
-                      ct.TensorType(name='det_output'),       # 检测框输出
-                      ct.TensorType(name='drive_area_mask'),  # 可行驶区域
-                      ct.TensorType(name='lane_line_mask')    # 车道线
+                      ct.TensorType(name='det_output'),       # 目标检测层
+                      ct.TensorType(name='drive_area_mask'),  # 分割层1
+                      ct.TensorType(name='lane_line_mask')    # 分割层2
                   ],
                   minimum_deployment_target=ct.target.iOS15
               )
+
+              # 写入元数据方便在 Xcode 中查看
+              mlmodel.author = 'YOLOP Team / Exported by Gemini'
+              mlmodel.license = 'MIT'
+              mlmodel.short_description = 'YOLOP ADAS: Object Detection, Drivable Area and Lane Detection'
 
               mlmodel.save('YOLOP_ADAS.mlpackage')
               print('✅ 转换大功告成！')
               
           except Exception as e:
-              print(f'❌ 转换失败，详细错误: {str(e)}')
-              # 打印回溯信息方便调试
+              print(f'❌ 核心转换流程失败: {str(e)}')
               import traceback
               traceback.print_exc()
               sys.exit(1)
